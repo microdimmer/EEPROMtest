@@ -1,9 +1,5 @@
 #include <TimeLib.h>        //timekeeping https://github.com/PaulStoffregen/Time
-#include <OneWire.h> 
 #include <EEPROM.h>
-
-//#define  SENOFF     8
-//#define  SENBIT     0x80
 
 #define DEBUGGING
 #ifdef DEBUGGING
@@ -45,73 +41,44 @@ struct Log {
   time_t unix_time; // current POSIX time, 4 bytes
 }; //total 8 bytes (64 bits)
 
-
-
-
-void eepromRead(uint16_t addr, void* output, uint16_t length) {
-    uint8_t* src; 
-    uint8_t* dst;
-    src = (uint8_t*)addr;
-    dst = (uint8_t*)output;
-    for (uint16_t i = 0; i < length; i++) {
-        *dst++ = eeprom_read_byte(src++);
-    }
-}
-
-void eepromWrite(uint16_t addr, void* input, uint16_t length) {
-    uint8_t* src; 
-    uint8_t* dst;
-    src = (uint8_t*)input;
-    dst = (uint8_t*)addr;
-    for (uint16_t i = 0; i < length; i++) {
-        eeprom_write_byte(dst++, *src++);
-    }
-}
-
 void(* resetFunc) (void) = 0;//объявляем функцию reset с адресом 0
+
+int16_t EEPROM_addr_to_read() {
+  int16_t read_byte_pos = 0;
+  while(read_byte_pos < EEPROM.length()-sizeof(Log)) { // determine address to read data
+    if (bitRead(EEPROM.read(read_byte_pos),7) !=  bitRead(EEPROM.read(read_byte_pos+sizeof(Log)),7)) //compare first bit in structs (sentinels), if not equal - we find address!
+      break;
+    read_byte_pos+=sizeof(Log); //go to next record
+  }
+  return read_byte_pos;
+}
 
 void setup() {
   #ifdef DEBUGGING
   Serial.begin(9600);
   #endif
   PRINTLNF("Debug on");
-  Log log_data;
-
-  int16_t i = 0;
-  int16_t read_byte_pos = 0;
-  byte sentinel = 0;
   
   ///////print all datas//////
-  while(i <= EEPROM.length()) { // determine address to read/write data
+  uint16_t i = 0;
+  Log log_data;
+  while(i < EEPROM.length()) { // determine address to read/write data
     EEPROM.get(i, log_data);
     PRINT("unix_time is ", log_data.unix_time);
-    PRINTLN(", i is ", i);
-    sentinel = bitRead(EEPROM.read(i),7);
-    if (sentinel !=  bitRead(EEPROM.read(i+ sizeof(Log)),7)) //compare first bit in structs (sentinels), if not equal - we find address!
+    PRINT(", address to read from is ", i);
+    PRINTLN(", sentinel is ", bitRead(EEPROM.read(i),7));
+    if (bitRead(EEPROM.read(i),7) !=  bitRead(EEPROM.read(i+sizeof(Log)),7)) //compare first bit in structs (sentinels), if not equal - we find address!
       break;
     i+=sizeof(Log); //go to next record
   }
-  log_data = Log();
   ///////print all datas//////
-
-  i = 0;
-  ////////find address///////
-  while(i < EEPROM.length()) { // determine address to read data
-    sentinel = bitRead(EEPROM.read(i),7);
-    if (sentinel !=  bitRead(EEPROM.read(i+ sizeof(Log)),7)) //compare first bit in structs (sentinels), if not equal - we find address!
-      break;
-    i+=sizeof(Log); //go to next record
-  }
-  if (i > EEPROM.length()) {
-    PRINTLN("reach end of EEPROM, go to the beginning, i is ",i);
-    i = 0;
-  }
-  read_byte_pos = i;
-  ////////find address///////
+  
+  int16_t read_byte_pos = EEPROM_addr_to_read(); //find address to read
+  PRINTLN("EEPROM_addr_to_read is ",read_byte_pos);
   
   ////////read///////
   EEPROM.get(read_byte_pos, log_data);
-  //byte sentinel = bitRead(log_data.home_temp,7);
+  byte sentinel = bitRead(log_data.home_temp,7);
   bitWrite(log_data.home_temp,7,bitRead(log_data.home_temp,6)); //copy 6 bit to 7, its now sign bit
   PRINTLNBIN("sentinel bit is ", sentinel);
   PRINTLN("log_data.home_temp is ", log_data.home_temp);
@@ -127,25 +94,27 @@ void setup() {
   
   ////////write///////
   int16_t write_byte_pos = 0;
-  if (read_byte_pos >= EEPROM.length()-1) { //TODO test , go to the start of EEPROM
-    write_byte_pos = 0; //read byte is 1023, write is 0
+  write_byte_pos = read_byte_pos + sizeof(Log);
+  if (write_byte_pos >= EEPROM.length()) { //TODO test , go to the start of EEPROM
+    PRINTLN("oops! reaching end of EEPROM go to begining (to 0), write_byte_pos is ", write_byte_pos);
+    write_byte_pos = 0; //read bytes is 1016+8, write is 0
+    PRINTLNBIN("sentinel bit is ", sentinel);
     sentinel ^= 1 ; //invert sentintel bit
+    PRINTLNBIN("sentinel bit is ", sentinel);
   }
-  else 
-    write_byte_pos = read_byte_pos + sizeof(Log);
-    
-  if (log_data.unix_time == 0xFFFFFFFF) {// empty date = empty data, read
+  if (log_data.unix_time == 0xFFFFFFFF) {//check data, empty date = empty data
     write_byte_pos = read_byte_pos;
     PRINTLNBIN("sentinel bit is ", sentinel);
-    sentinel ^= 1 ; //0b00000001 invert sentintel bit
-    PRINTLNBIN("sentinel bit is ", sentinel);
+    sentinel ^= 1 ; // invert sentintel bit
+    PRINTLNBIN("invert sentintel bit now ", sentinel);
   }
   PRINTLN("byte to read is ", read_byte_pos);
   PRINTLN("byte to write is ", write_byte_pos);
-  return;
+//  return;
+
+  ////////write///////
   setTime(log_data.unix_time);
   adjustTime(7); //add 7 sec
-//  log_data = Log();
   log_data.home_temp = -18; //home temp must be <= 0b00111111, i.e. abs(home_temp) <= 63
   bitWrite(log_data.home_temp,7,sentinel); //set last bit, its sentinel (0b10000000)
   log_data.heater_temp = -20;
@@ -154,8 +123,8 @@ void setup() {
   EEPROM.put(write_byte_pos, log_data );
   PRINTLNF("writing done ");
   
-  ////////write///////
-  delay(10000);
+  
+  delay(5000);
   resetFunc(); //вызываем reset
 }
 
