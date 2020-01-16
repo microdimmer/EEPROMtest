@@ -50,6 +50,10 @@ int16_t EEPROM_addr_to_read() {
       break;
     read_byte_pos+=sizeof(Log); //go to next record
   }
+//  if (read_byte_pos >= EEPROM.length()-sizeof(Log)) {
+//    PRINTLN("reach end of EEPROM, go to the beginning, read_byte_pos is ",read_byte_pos);
+//    read_byte_pos = 0;
+//  }
   return read_byte_pos;
 }
 
@@ -58,9 +62,17 @@ void setup() {
   Serial.begin(9600);
   #endif
   PRINTLNF("Debug on");
+  uint16_t i = 0;
+
+//  while(i < EEPROM.length()) {
+//    EEPROM.write(i,255);
+//    i++;
+//  }
+//  PRINTLNF("Clear EEPROM done!");
+//  return;
   
   ///////print all datas//////
-  uint16_t i = 0;
+  
   Log log_data;
   while(i < EEPROM.length()) { // determine address to read/write data
     EEPROM.get(i, log_data);
@@ -102,15 +114,15 @@ void setup() {
     sentinel ^= 1 ; //invert sentintel bit
     PRINTLNBIN("sentinel bit is ", sentinel);
   }
-  if (log_data.unix_time == 0xFFFFFFFF) {//check data, empty date = empty data
-    write_byte_pos = read_byte_pos;
-    PRINTLNBIN("sentinel bit is ", sentinel);
-    sentinel ^= 1 ; // invert sentintel bit
-    PRINTLNBIN("invert sentintel bit now ", sentinel);
-  }
+//  if (log_data.unix_time == 0xFFFFFFFF) {//check data, empty date = empty data
+//    write_byte_pos = read_byte_pos;
+//    PRINTLNBIN("sentinel bit is ", sentinel);
+//    sentinel ^= 1 ; // invert sentintel bit
+//    PRINTLNBIN("invert sentintel bit now ", sentinel);
+//  }
   PRINTLN("byte to read is ", read_byte_pos);
   PRINTLN("byte to write is ", write_byte_pos);
-//  return;
+  return;
 
   ////////write///////
   setTime(log_data.unix_time);
