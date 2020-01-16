@@ -43,7 +43,7 @@ struct Log {
 
 void(* resetFunc) (void) = 0;//объявляем функцию reset с адресом 0
 
-int16_t EEPROM_addr_to_read() {
+int16_t addr_to_read() {
   int16_t read_byte_pos = 0;
   while(read_byte_pos < EEPROM.length()-sizeof(Log)) { // determine address to read data
     if (bitRead(EEPROM.read(read_byte_pos),7) !=  bitRead(EEPROM.read(read_byte_pos+sizeof(Log)),7)) //compare first bit in structs (sentinels), if not equal - we find address!
@@ -84,13 +84,47 @@ void setup() {
     i+=sizeof(Log); //go to next record
   }
   ///////print all datas//////
+
+
+  int16_t read_byte_pos = addr_to_read(); //find EEPROM address to read from
+  PRINTLN("EEPROM_addr_to_read is ",read_byte_pos);  
+//  log_data;
+  EEPROM.get(read_byte_pos, log_data); //read EEPROM data
+  byte sentinel = bitRead(log_data.home_temp,7); //read sentinel bit
+
+  time_t previous_datetime = log_data.unix_time;
+  if (log_data.unix_time == 0xFFFFFFFF) {//check data, if empty date = empty data, nothing to read
+    previous_datetime = 0; //no data - send SMS and write to EEPROM
+    sentinel ^= 1 ; // invert sentintel bit
+  }
+  setTime(1599171670);
+  if (elapsedDays(now()) - elapsedDays(previous_datetime) >= 80) { //if more than 80 days have passed from last sending, send new SMS
+    //write datetitme (data struct) to EEPROM
+    int16_t write_byte_pos = read_byte_pos + sizeof(Log);
+    if (write_byte_pos >= EEPROM.length()) { //reaching end of EEPROM go to begining (to 0), to the start of EEPROM
+      PRINTLNF("reaching end of EEPROM go to begining (to 0), to the start of EEPROM");
+      write_byte_pos = 0;
+      if (log_data.unix_time != 0xFFFFFFFF)
+        sentinel ^= 1 ; //invert sentintel bit
+    }
+    log_data.home_temp = 1; //home temp must be <= 0b00111111, i.e. abs(home_temp) <= 63
+    bitWrite(log_data.home_temp,7,sentinel); //set last bit, its sentinel (0b10000000)
+    log_data.heater_temp = 2;
+    log_data.balance = 51;
+    log_data.unix_time = now();   
+//    EEPROM.put(write_byte_pos, log_data );
+    PRINTLN("sentinel ", sentinel);
+    PRINTLN("write_byte_pos ", write_byte_pos);
+    PRINTLNF("Writing to EEPROM done!");
+  }
+  return;
   
-  int16_t read_byte_pos = EEPROM_addr_to_read(); //find address to read
+  read_byte_pos = addr_to_read(); //find address to read
   PRINTLN("EEPROM_addr_to_read is ",read_byte_pos);
   
   ////////read///////
   EEPROM.get(read_byte_pos, log_data);
-  byte sentinel = bitRead(log_data.home_temp,7);
+  sentinel = bitRead(log_data.home_temp,7);
   bitWrite(log_data.home_temp,7,bitRead(log_data.home_temp,6)); //copy 6 bit to 7, its now sign bit
   PRINTLNBIN("sentinel bit is ", sentinel);
   PRINTLN("log_data.home_temp is ", log_data.home_temp);
